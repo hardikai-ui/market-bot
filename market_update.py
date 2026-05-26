@@ -1,9 +1,11 @@
 import requests
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 def get_indian_stocks():
     symbols = {
@@ -93,9 +95,7 @@ def fmt_pct(pct):
     return f"{sign}{pct:.2f}%"
 
 def build_message():
-    from datetime import timezone, timedelta
-IST = timezone(timedelta(hours=5, minutes=30))
-now = datetime.now(IST).strftime("%d %b %Y | %I:%M %p")
+    now = datetime.now(IST).strftime("%d %b %Y | %I:%M %p")
     msg = f"""╔══════════════════════════╗
 📊 *DAILY MARKET UPDATE*
 🗓 {now} IST
