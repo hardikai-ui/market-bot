@@ -93,7 +93,9 @@ def fmt_pct(pct):
     return f"{sign}{pct:.2f}%"
 
 def build_message():
-    now = datetime.now().strftime("%d %b %Y | %I:%M %p")
+    from datetime import timezone, timedelta
+IST = timezone(timedelta(hours=5, minutes=30))
+now = datetime.now(IST).strftime("%d %b %Y | %I:%M %p")
     msg = f"""╔══════════════════════════╗
 📊 *DAILY MARKET UPDATE*
 🗓 {now} IST
