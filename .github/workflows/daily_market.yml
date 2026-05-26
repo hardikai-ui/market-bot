@@ -1,0 +1,23 @@
+name: Daily Market Update
+
+on:
+  schedule:
+    - cron: '30 3 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  send-market-update:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - run: pip install -r requirements.txt
+    - name: Run market update
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+        CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+      run: python market_update.py
