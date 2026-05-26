@@ -2,17 +2,8 @@ import requests
 import os
 from datetime import datetime
 
-# ============================================================
-# MARKET UPDATE BOT - Free Version
-# Telegram + WhatsApp (CallMeBot)
-# ============================================================
-
-# Settings - GitHub Secrets se aayega automatically
-# Local test ke liye neeche directly fill kar sakte ho
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8644767872:AAGVoSiAtSY8r5scWUsFC4GRK6mOpZUuV8E")
-TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "@mymarketupdates")
-CALLMEBOT_PHONE = os.environ.get("CALLMEBOT_PHONE", "+91XXXXXXXXXX")
-CALLMEBOT_APIKEY = os.environ.get("CALLMEBOT_APIKEY", "YOUR_CALLMEBOT_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
 def get_indian_stocks():
     symbols = {
@@ -153,23 +144,12 @@ def send_telegram(message):
     })
     return r.status_code == 200
 
-def send_whatsapp(message):
-    clean = message.replace("*","").replace("_","").replace("`","")
-    r = requests.get("https://api.callmebot.com/whatsapp.php", params={
-        "phone": CALLMEBOT_PHONE,
-        "text": clean[:1600],
-        "apikey": CALLMEBOT_APIKEY
-    })
-    return r.status_code == 200
-
 def main():
     print("📊 Market data fetch ho raha hai...")
     message = build_message()
     print(message)
     print("\n📤 Telegram pe bhej raha hoon...")
     print("✅ Telegram: Success!" if send_telegram(message) else "❌ Telegram: Failed")
-    print("📤 WhatsApp pe bhej raha hoon...")
-    print("✅ WhatsApp: Success!" if send_whatsapp(message) else "❌ WhatsApp: Failed")
 
 if __name__ == "__main__":
     main()
