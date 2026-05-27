@@ -9,7 +9,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 IST = timezone(timedelta(hours=5, minutes=30))
-COMMUNITY_NAME = "mymarketupdates"  # Apna naam yahan likho
+COMMUNITY_NAME = "mymarketupdates"
 
 def get_market_data():
     symbols = {
@@ -24,6 +24,7 @@ def get_market_data():
         "BANK NIFTY": "^NSEBANK",
         "NIFTY MIDCAP": "^NSEMDCP50",
         "INDIA VIX": "^INDIAVIX",
+        "CRUDE OIL": "CL=F",
     }
     results = {}
     for name, symbol in symbols.items():
@@ -43,30 +44,6 @@ def get_market_data():
             results[name] = None
     return results
 
-def get_commodities():
-    symbols = {
-        "GOLD": "GC=F",
-        "SILVER": "SI=F",
-        "CRUDE OIL": "CL=F",
-    }
-    results = {}
-    for name, symbol in symbols.items():
-        try:
-            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            r = requests.get(url, headers=headers, timeout=10)
-            data = r.json()
-            closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-            closes = [c for c in closes if c is not None]
-            if closes:
-                curr = closes[-1]
-                prev = closes[-2] if len(closes) >= 2 else curr
-                pct = ((curr - prev) / prev) * 100
-                results[name] = {"price": curr, "pct": pct}
-        except:
-            results[name] = None
-    return results
-
 def get_forex():
     try:
         url = "https://api.exchangerate-api.com/v4/latest/USD"
@@ -74,21 +51,12 @@ def get_forex():
         data = r.json()
         rates = data.get("rates", {})
         inr = rates.get("INR", 84)
-        return {
-            "USD/INR": round(inr, 2),
-            "EUR/INR": round(inr / rates.get("EUR", 0.92), 2),
-            "GBP/INR": round(inr / rates.get("GBP", 0.79), 2),
-        }
+        return {"USD/INR": round(inr, 2)}
     except:
         return {}
 
-def get_fuel_prices():
-    # Surat ke approximate prices - AI se update hoga
-    return {"petrol": "94.77", "diesel": "87.97"}
-
 def get_gold_inr():
     try:
-        # Gold USD to INR convert
         forex_url = "https://api.exchangerate-api.com/v4/latest/USD"
         r = requests.get(forex_url, timeout=10)
         inr_rate = r.json()["rates"]["INR"]
@@ -99,58 +67,20 @@ def get_gold_inr():
         data = r2.json()
         closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
         closes = [c for c in closes if c is not None]
-        if closes:
-            gold_usd_per_oz = closes[-1]
-            gold_usd_per_gram = gold_usd_per_oz / 31.1035
-            gold_inr_per_gram = gold_usd_per_gram * inr_rate
-            silver_url = "https://query2.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=5d"
-            r3 = requests.get(silver_url, headers=headers, timeout=10)
-            data3 = r3.json()
-            closes3 = data3["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-            closes3 = [c for c in closes3 if c is not None]
-            silver_inr_per_kg = 0
-            if closes3:
-                silver_usd_per_oz = closes3[-1]
-                silver_usd_per_kg = silver_usd_per_oz * 32.1507
-                silver_inr_per_kg = silver_usd_per_kg * inr_rate
-            return {
-                "gold_per_gram": round(gold_inr_per_gram, 0),
-                "silver_per_kg": round(silver_inr_per_kg, 0)
-            }
+
+        silver_url = "https://query2.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=5d"
+        r3 = requests.get(silver_url, headers=headers, timeout=10)
+        data3 = r3.json()
+        closes3 = data3["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        closes3 = [c for c in closes3 if c is not None]
+
+        gold_inr = round((closes[-1] / 31.1035) * inr_rate, 0) if closes else 0
+        silver_inr = round((closes3[-1] * 32.1507) * inr_rate, 0) if closes3 else 0
+        return {"gold_per_gram": gold_inr, "silver_per_kg": silver_inr}
     except:
         return {"gold_per_gram": 0, "silver_per_kg": 0}
 
-def get_top_stocks():
-    # NSE top gainers/losers
-    try:
-        session = requests.Session()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-            "Referer": "https://www.nseindia.com",
-        }
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        
-        gainers_url = "https://www.nseindia.com/api/live-analysis-variations?index=gainers"
-        r = session.get(gainers_url, headers=headers, timeout=10)
-        data = r.json()
-        gainers = []
-        losers = []
-        for item in data.get("NIFTY", {}).get("data", [])[:3]:
-            gainers.append({
-                "symbol": item.get("symbol", ""),
-                "pct": item.get("perChange", 0)
-            })
-        for item in data.get("NIFTY", {}).get("data", [])[-3:]:
-            losers.append({
-                "symbol": item.get("symbol", ""),
-                "pct": item.get("perChange", 0)
-            })
-        return gainers, losers
-    except:
-        return [], []
-
-def build_prompt(market_data, gold_data, session_type):
+def build_prompt(market_data, session_type):
     now = datetime.now(IST)
     date_str = now.strftime("%d %B %Y, %A")
     nifty = market_data.get("NIFTY 50", {}) or {}
@@ -158,7 +88,7 @@ def build_prompt(market_data, gold_data, session_type):
     gift = market_data.get("GIFT NIFTY", {}) or {}
 
     if session_type == "morning":
-        return f"""Aap ek expert Indian stock market analyst ho. Aaj ki date: {date_str}
+        return f"""You are an expert Indian stock market analyst. Today's date: {date_str}
 
 Market data:
 - Dow Jones: {market_data.get('DOW JONES', {})}
@@ -169,21 +99,12 @@ Market data:
 - Nifty 50: {nifty}
 - Bank Nifty: {market_data.get('BANK NIFTY', {})}
 
-Sirf valid JSON do, kuch aur mat likho:
-{{
-  "big_news": ["Hindi mein news 1", "Hindi mein news 2", "Hindi mein news 3"],
-  "nifty_support": ["level1", "level2"],
-  "nifty_resistance": ["level1", "level2"],
-  "bank_nifty_support": ["level1", "level2"],
-  "bank_nifty_resistance": ["level1", "level2"],
-  "important_events": ["event 1", "event 2"],
-  "market_direction": "UPAR",
-  "opening_view": "2 line Hindi mein"
-}}"""
+Return ONLY a valid JSON object, no explanation, no markdown:
+{{"big_news": ["Hindi news 1", "Hindi news 2", "Hindi news 3"], "nifty_support": ["24000", "23800"], "nifty_resistance": ["24200", "24500"], "bank_nifty_support": ["51000", "50500"], "bank_nifty_resistance": ["52000", "52500"], "important_events": ["Event 1", "Event 2"], "market_direction": "UPAR", "opening_view": "2 line Hindi mein market opening ke baare mein"}}"""
     else:
         nifty_pct = nifty.get('pct', 0)
         reason = "upar" if nifty_pct >= 0 else "neeche"
-        return f"""Aap ek expert Indian stock market analyst ho. Aaj ki date: {date_str}
+        return f"""You are an expert Indian stock market analyst. Today's date: {date_str}
 
 Closing data:
 - Nifty 50: {nifty}
@@ -191,60 +112,78 @@ Closing data:
 - Bank Nifty: {market_data.get('BANK NIFTY', {})}
 - India VIX: {market_data.get('INDIA VIX', {})}
 
-Sirf valid JSON do, kuch aur mat likho:
-{{
-  "kyun_aisa_hua": "2-3 line Hindi mein - market {reason} kyun gaya",
-  "top_gainers": [{{"name": "Stock1", "pct": "+2.5"}}, {{"name": "Stock2", "pct": "+1.8"}}, {{"name": "Stock3", "pct": "+1.2"}}],
-  "top_losers": [{{"name": "Stock1", "pct": "-2.1"}}, {{"name": "Stock2", "pct": "-1.5"}}, {{"name": "Stock3", "pct": "-0.9"}}],
-  "kal_ke_liye": ["event 1", "event 2"],
-  "petrol_surat": "94.77",
-  "diesel_surat": "87.97",
-  "sentiment": "BULLISH"
-}}"""
+Return ONLY a valid JSON object, no explanation, no markdown:
+{{"kyun_aisa_hua": "2-3 line Hindi mein market {reason} kyun gaya", "top_gainers": [{{"name": "RELIANCE", "pct": "+2.5"}}, {{"name": "TCS", "pct": "+1.8"}}, {{"name": "INFY", "pct": "+1.2"}}], "top_losers": [{{"name": "WIPRO", "pct": "-2.1"}}, {{"name": "HDFC", "pct": "-1.5"}}, {{"name": "ICICI", "pct": "-0.9"}}], "kal_ke_liye": ["Event 1", "Event 2"], "petrol_surat": "94.77", "diesel_surat": "87.97", "sentiment": "BULLISH"}}"""
 
 def call_gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.5, "maxOutputTokens": 600}
-    }
-    r = requests.post(url, json=payload, timeout=20)
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 800,
+                "responseMimeType": "application/json"
+            }
+        }
+        r = requests.post(url, json=payload, timeout=25)
+        data = r.json()
+        print(f"Gemini status: {r.status_code}")
+        if "candidates" not in data:
+            print(f"Gemini full response: {data}")
+            return None
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"Gemini error: {e}")
+        return None
 
 def call_groq(prompt):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "llama3-8b-8192",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 600,
-        "temperature": 0.5
-    }
-    r = requests.post(url, headers=headers, json=payload, timeout=20)
-    return r.json()["choices"][0]["message"]["content"].strip()
-
-def parse_json(text):
-    if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text.strip())
-
-def get_ai_content(market_data, commodities, gold_data, session_type):
-    prompt = build_prompt(market_data, gold_data, session_type)
-    # Pehle Gemini try karo, phir Groq fallback
     try:
-        print("🤖 Gemini se analysis le raha hoon...")
-        text = call_gemini(prompt)
-        return parse_json(text)
-    except Exception as e:
-        print(f"Gemini error: {e}, Groq try kar raha hoon...")
-    try:
-        text = call_groq(prompt)
-        return parse_json(text)
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama3-8b-8192",
+            "messages": [
+                {"role": "system", "content": "You are a JSON-only response bot. Always return valid JSON only, no explanation."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 800,
+            "temperature": 0.3
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=25)
+        data = r.json()
+        print(f"Groq status: {r.status_code}")
+        if "choices" not in data:
+            print(f"Groq full response: {data}")
+            return None
+        text = data["choices"][0]["message"]["content"].strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
     except Exception as e:
         print(f"Groq error: {e}")
         return None
+
+def get_ai_content(market_data, session_type):
+    prompt = build_prompt(market_data, session_type)
+    print("🤖 Gemini try kar raha hoon...")
+    result = call_gemini(prompt)
+    if result:
+        print("✅ Gemini success!")
+        return result
+    print("🔄 Groq try kar raha hoon...")
+    result = call_groq(prompt)
+    if result:
+        print("✅ Groq success!")
+        return result
+    print("❌ Dono AI fail")
+    return None
 
 def arrow(pct):
     if pct is None: return "➖"
@@ -336,11 +275,11 @@ def build_closing_message(market_data, ai_data, gold_data):
     sensex = market_data.get("SENSEX")
     bnifty = market_data.get("BANK NIFTY")
     midcap = market_data.get("NIFTY MIDCAP")
+    crude = market_data.get("CRUDE OIL")
     forex = get_forex()
 
     gold_per_gram = gold_data.get("gold_per_gram", 0)
     silver_per_kg = gold_data.get("silver_per_kg", 0)
-
     petrol = ai_data.get("petrol_surat", "94.77") if ai_data else "94.77"
     diesel = ai_data.get("diesel_surat", "87.97") if ai_data else "87.97"
 
@@ -355,28 +294,29 @@ def build_closing_message(market_data, ai_data, gold_data):
 {arrow(midcap['pct']) if midcap else '➖'} Nifty Midcap: {fmt(midcap['price'], midcap['pct']) if midcap else 'N/A'}
 
 ━━━━━━━━━━━━━━━━━━
+🏆 *TOP GAINERS*
 """
-    # Top Gainers & Losers from AI
-    if ai_data:
-        gainers = ai_data.get("top_gainers", [])
-        losers = ai_data.get("top_losers", [])
+    if ai_data and ai_data.get("top_gainers"):
+        for g in ai_data["top_gainers"][:3]:
+            msg += f"✅ {g.get('name', '')}: +{g.get('pct', '')}%\n"
+    else:
+        msg += "➖ Data unavailable\n"
 
-        if gainers:
-            msg += "🏆 *TOP GAINERS*\n"
-            for g in gainers[:3]:
-                msg += f"✅ {g.get('name', '')}: +{g.get('pct', '')}%\n"
+    msg += "\n📉 *TOP LOSERS*\n"
+    if ai_data and ai_data.get("top_losers"):
+        for l in ai_data["top_losers"][:3]:
+            msg += f"❌ {l.get('name', '')}: {l.get('pct', '')}%\n"
+    else:
+        msg += "➖ Data unavailable\n"
 
-        if losers:
-            msg += "\n📉 *TOP LOSERS*\n"
-            for l in losers[:3]:
-                msg += f"❌ {l.get('name', '')}: {l.get('pct', '')}%\n"
+    crude_price = f"${crude['price']:,.2f}" if crude else "N/A"
 
     msg += f"""
 ━━━━━━━━━━━━━━━━━━
 💰 *COMMODITIES*
 🥇 Gold (24K): ₹{gold_per_gram:,.0f}/gm
 🥈 Silver: ₹{silver_per_kg:,.0f}/kg
-🛢️ Crude Oil: ${market_data.get('CRUDE OIL', {}).get('price', 'N/A') if market_data.get('CRUDE OIL') else 'N/A'}/barrel
+🛢️ Crude Oil: {crude_price}/barrel
 
 ━━━━━━━━━━━━━━━━━━
 💵 *CURRENCY & FUEL*
@@ -412,6 +352,8 @@ def send_telegram(message):
         "text": message,
         "parse_mode": "Markdown"
     })
+    if r.status_code != 200:
+        print(f"Telegram error: {r.text}")
     return r.status_code == 200
 
 def main():
@@ -420,21 +362,15 @@ def main():
 
     print("📊 Market data fetch ho raha hai...")
     market_data = get_market_data()
-    gold_data = get_gold_inr()
 
     if 4 <= hour < 12:
-        print("🌅 Morning update...")
-        session = "morning"
-    else:
-        print("🌇 Closing update...")
-        session = "closing"
-
-    print("🤖 AI analysis...")
-    ai_data = get_ai_content(market_data, None, gold_data, session)
-
-    if session == "morning":
+        print("🌅 Morning update bana raha hoon...")
+        ai_data = get_ai_content(market_data, "morning")
         message = build_morning_message(market_data, ai_data)
     else:
+        print("🌇 Closing update bana raha hoon...")
+        gold_data = get_gold_inr()
+        ai_data = get_ai_content(market_data, "closing")
         message = build_closing_message(market_data, ai_data, gold_data)
 
     print(message)
