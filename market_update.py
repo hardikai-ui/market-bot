@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 COMMUNITY_NAME = "mymarketupdates"  # Apna naam yahan likho
@@ -149,16 +150,15 @@ def get_top_stocks():
     except:
         return [], []
 
-def get_ai_content(market_data, commodities, gold_data, session_type):
-    try:
-        now = datetime.now(IST)
-        date_str = now.strftime("%d %B %Y, %A")
-        nifty = market_data.get("NIFTY 50", {}) or {}
-        sensex = market_data.get("SENSEX", {}) or {}
-        gift = market_data.get("GIFT NIFTY", {}) or {}
+def build_prompt(market_data, gold_data, session_type):
+    now = datetime.now(IST)
+    date_str = now.strftime("%d %B %Y, %A")
+    nifty = market_data.get("NIFTY 50", {}) or {}
+    sensex = market_data.get("SENSEX", {}) or {}
+    gift = market_data.get("GIFT NIFTY", {}) or {}
 
-        if session_type == "morning":
-            prompt = f"""Aap ek expert Indian stock market analyst ho. Aaj ki date: {date_str}
+    if session_type == "morning":
+        return f"""Aap ek expert Indian stock market analyst ho. Aaj ki date: {date_str}
 
 Market data:
 - Dow Jones: {market_data.get('DOW JONES', {})}
@@ -180,11 +180,10 @@ Sirf valid JSON do, kuch aur mat likho:
   "market_direction": "UPAR",
   "opening_view": "2 line Hindi mein"
 }}"""
-
-        else:
-            nifty_pct = nifty.get('pct', 0)
-            reason = "upar" if nifty_pct >= 0 else "neeche"
-            prompt = f"""Aap ek expert Indian stock market analyst ho. Aaj ki date: {date_str}
+    else:
+        nifty_pct = nifty.get('pct', 0)
+        reason = "upar" if nifty_pct >= 0 else "neeche"
+        return f"""Aap ek expert Indian stock market analyst ho. Aaj ki date: {date_str}
 
 Closing data:
 - Nifty 50: {nifty}
@@ -203,26 +202,48 @@ Sirf valid JSON do, kuch aur mat likho:
   "sentiment": "BULLISH"
 }}"""
 
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "llama3-8b-8192",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 600,
-            "temperature": 0.5
-        }
-        r = requests.post(url, headers=headers, json=payload, timeout=20)
-        content = r.json()["choices"][0]["message"]["content"].strip()
-        if "```" in content:
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        return json.loads(content.strip())
+def call_gemini(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.5, "maxOutputTokens": 600}
+    }
+    r = requests.post(url, json=payload, timeout=20)
+    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+def call_groq(prompt):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 600,
+        "temperature": 0.5
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=20)
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+def parse_json(text):
+    if "```" in text:
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return json.loads(text.strip())
+
+def get_ai_content(market_data, commodities, gold_data, session_type):
+    prompt = build_prompt(market_data, gold_data, session_type)
+    # Pehle Gemini try karo, phir Groq fallback
+    try:
+        print("🤖 Gemini se analysis le raha hoon...")
+        text = call_gemini(prompt)
+        return parse_json(text)
     except Exception as e:
-        print(f"AI Error: {e}")
+        print(f"Gemini error: {e}, Groq try kar raha hoon...")
+    try:
+        text = call_groq(prompt)
+        return parse_json(text)
+    except Exception as e:
+        print(f"Groq error: {e}")
         return None
 
 def arrow(pct):
